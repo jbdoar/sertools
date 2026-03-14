@@ -1,0 +1,31 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sertools"
+version = "0.1.0"
+description = "Interface for serial devices using pyserial."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name = "Jason Doar", email = "jbdoar@gmail.com"}]
+dependencies = ["pyserial", "readchar"]
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/jbdoar/sertools"
+Issues = "https://github.com/jbdoar/sertools/issues"
+
+[project.scripts]
+# serial terminal emulator
+sterm = "sertools.scripts.sterm:main"
+
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
