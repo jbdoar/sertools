@@ -70,14 +70,14 @@ def send_raw(ser, s):
     """
     sys.stdout.write(s)
     sys.stdout.flush()
-    ser.write(s, append_newline=False)
-    log.info('TX: %r', s)
-
+    ser.ser.write(s.encode(ser.encoding))
 
 
 def terminal(ser):
     stop_event = threading.Event()
     threading.Thread(target=reader, args=(ser, stop_event), daemon=True).start()
+
+    linebuf = []
 
     try:
         while True:
@@ -91,9 +91,13 @@ def terminal(ser):
             elif key == readchar.key.BACKSPACE:
                 send_raw(ser, '\x08')
             elif key in (readchar.key.ENTER, readchar.key.CR, readchar.key.LF):
+                line = ''.join(linebuf)
                 send_raw(ser, ser.newline_tx or '\r')
+                if line:
+                    log.info("TX: %r", line)
             else:
                 send_raw(ser, key)
+                linebuf.append(key)
     finally:
         stop_event.set()
 
