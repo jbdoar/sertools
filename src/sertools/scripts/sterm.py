@@ -47,23 +47,31 @@ def reader(ser, stop_event):
         buf.extend(data)
 
         while True:
+            # look for line breaks
+
             i_crlf = buf.find(b'\r\n')
             i_cr = buf.find(b'\r')
             i_lf = buf.find(b'\n')
 
-            matches = [(i, 2) for i in [i_crlf] if i != -1]
-            matches += [(i, 1) for i in [i_cr, i_lf] if i != -1]
+            if i_crlf != -1 and (i_cr == -1 or i_crlf <= i_cr) and (i_lf == -1 or i_crlf <= i_lf):
+                i, nl_len = i_crlf, 2
 
-            if not matches:
+            elif i_cr != -1 and (i_lf == -1 or i_cr <= i_lf):
+                if i_cr == len(buf) - 1:
+                    break
+                i, nl_len = i_cr, 1
+
+            elif i_lf != -1:
+                i, nl_len = i_lf, 1
+
+            else:
                 break
-
-            i, nl_len = min(matches, key=lambda x: x[0])
-            line = bytes(buf[:i]).decode(ser.encoding, errors='replace')
+            
+            raw = bytes(buf[:i + nl_len]).decode(ser.encoding, errors='replace')
             del buf[:i + nl_len]
 
-            if line:
-                log.info('RX: %r', line)
-
+            log.info('RX: %r', raw)
+            
 
 def send_raw(ser, s):
     """
@@ -88,13 +96,19 @@ def terminal(ser):
 
             if key == readchar.key.ESC:
                 send_raw(ser, '\x1b')
+                
             elif key == readchar.key.BACKSPACE:
                 send_raw(ser, '\x08')
+                if linebuf:
+                    linebuf.pop()
+                    
             elif key in (readchar.key.ENTER, readchar.key.CR, readchar.key.LF):
                 line = ''.join(linebuf)
-                send_raw(ser, ser.newline_tx or '\r')
-                if line:
-                    log.info("TX: %r", line)
+                nl = ser.newline_tx or '\r'
+                send_raw(ser, nl)
+                #if line:
+                log.info("TX: %r", line + nl)
+                linebuf.clear()
             else:
                 send_raw(ser, key)
                 linebuf.append(key)
