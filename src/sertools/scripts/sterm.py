@@ -1,3 +1,12 @@
+"""
+TODO:
+- docstrings for functions
+- configure tx/rx newline args
+- optionally configure data, parity, stop bit, flow control
+- handle port unavailable exceptions
+"""
+
+
 import argparse
 import logging
 import sys
