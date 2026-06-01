@@ -22,7 +22,7 @@ Issues = "https://github.com/jbdoar/sertools/issues"
 [project.scripts]
 # serial terminal emulator
 sterm = "sertools.scripts.sterm:main"
-
+list_ports = "sertools.scripts.list_ports:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -3,6 +3,7 @@ TODO:
 - docstrings for functions
 - configure tx/rx newline args
 - optionally configure data, parity, stop bit, flow control
+- optionally configure local echo
 - handle port unavailable exceptions
 """
 
@@ -82,20 +83,25 @@ def reader(ser, stop_event):
             log.info('RX: %r', raw)
             
 
-def send_raw(ser, s):
+def send_raw(ser, s, local_echo=True):
     """
     """
-    sys.stdout.write(s)
-    sys.stdout.flush()
+    if local_echo:
+        sys.stdout.write(s)
+        sys.stdout.flush()
+
     ser.ser.write(s.encode(ser.encoding))
 
 
-def terminal(ser):
+def terminal(ser, local_echo=True):
     stop_event = threading.Event()
     threading.Thread(target=reader, args=(ser, stop_event), daemon=True).start()
 
     linebuf = []
 
+    def tx(s):
+        send_raw(ser, s, local_echo=local_echo)
+    
     try:
         while True:
             try:
@@ -104,23 +110,25 @@ def terminal(ser):
                 break
 
             if key == readchar.key.ESC:
-                send_raw(ser, '\x1b')
+                tx('\x1b')
                 
             elif key == readchar.key.BACKSPACE:
-                send_raw(ser, '\x08')
+                tx('\x08')
                 if linebuf:
                     linebuf.pop()
                     
             elif key in (readchar.key.ENTER, readchar.key.CR, readchar.key.LF):
                 line = ''.join(linebuf)
                 nl = ser.newline_tx or '\r'
-                send_raw(ser, nl)
+                tx(nl)
                 #if line:
                 log.info("TX: %r", line + nl)
                 linebuf.clear()
+                
             else:
-                send_raw(ser, key)
+                tx(key)
                 linebuf.append(key)
+                
     finally:
         stop_event.set()
 
@@ -130,6 +138,7 @@ def main():
     parser.add_argument('port')
     parser.add_argument('baudrate', type=int)
     parser.add_argument('--log', help='path to log file')
+    parser.add_argument('--no-echo', action='store_true', help='disable local echo')
     args = parser.parse_args()
 
     configure_logging(args.log)
@@ -142,8 +151,10 @@ def main():
         terminator_cmd=None,
     )
 
+    local_echo = not args.no_echo
+    
     try:
-        terminal(ser)
+        terminal(ser, local_echo=local_echo)
     finally:
         ser.close()
 

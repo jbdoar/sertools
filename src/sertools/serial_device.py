@@ -1,5 +1,10 @@
 """sertools.py module, a thin pyserial wrapper"""
 
+
+"""
+
+"""
+
 import logging
 import time
 
