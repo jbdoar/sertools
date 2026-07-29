@@ -48,7 +48,13 @@ class SerialDevice:
                  newline_tx: str = '\r',
                  newline_rx: str = '\r',
                  terminator: str | None = None,
-                 terminator_cmd: str | None = None):
+                 terminator_cmd: str | None = None,
+                 bytesize: int = serial.EIGHTBITS,
+                 parity: str = serial.PARITY_NONE,
+                 stopbits: float = serial.STOPBITS_ONE,
+                 xonxoff: bool = False,
+                 rtscts: bool = False,
+                 dsrdtr: bool = False):
 
         self.port = port
         self.baudrate = baudrate
@@ -59,14 +65,34 @@ class SerialDevice:
         self.terminator = terminator
         self.terminator_cmd = terminator_cmd
         self._rx_buffer = bytearray()
+        self.bytesize = bytesize
+        self.parity = parity
+        self.stopbits = stopbits
+        self.xonxoff = xonxoff
+        self.rtscts = rtscts
+        self.dsrdtr = dsrdtr
 
         self.ser = serial.Serial(port=port,
                                  baudrate=baudrate,
-                                 timeout=timeout)
+                                 timeout=timeout,
+                                 bytesize=bytesize,
+                                 parity=parity,
+                                 stopbits=stopbits,
+                                 xonxoff=xonxoff,
+                                 rtscts=rtscts,
+                                 dsrdtr=dsrdtr,
+                                 )
 
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(port={self.port!r}, baudrate={self.baudrate})"
+        return (
+            f"{self.__class__.__name__}("
+            f"port={self.port!r}, "
+            f"baudrate={self.baudrate}, "
+            f"bytesize={self.bytesize}, "
+            f"parity={self.parity!r}, "
+            f"stopbits={self.stopbits})"
+        )
 
 
     def __str__(self):

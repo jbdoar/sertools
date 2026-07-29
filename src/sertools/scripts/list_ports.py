@@ -1,6 +1,4 @@
-"""
-List COM ports
-"""
+"""List COM ports"""
 
 import argparse
 
@@ -8,11 +6,19 @@ from serial.tools import list_ports
 
 
 def main():
+    """
+    Uses serial.tools.list_ports() to list COM ports and associated attributes.
+    If called with --verbose option, print all the attributes.
+    Else, just the ports.
 
+    Examples
+    --------
+    >>>list_ports
+    >>>list_ports --verbose
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()
-    
     ports = list_ports.comports()
 
     for port in ports:
