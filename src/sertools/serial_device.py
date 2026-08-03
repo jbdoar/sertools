@@ -86,12 +86,21 @@ class SerialDevice:
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}("
-            f"port={self.port!r}, "
-            f"baudrate={self.baudrate}, "
-            f"bytesize={self.bytesize}, "
-            f"parity={self.parity!r}, "
-            f"stopbits={self.stopbits})"
+            f"{self.__class__.__name__}(\n"
+            f"    port={self.port!r},\n"
+            f"    baudrate={self.baudrate},\n"
+            f"    timeout={self.timeout!r},\n"
+            f"    encoding={self.encoding},\n"
+            f"    newline_tx={self.newline_tx},\n"
+            f"    newline_rx={self.newline_rx},\n"
+            f"    terminator={self.terminator},\n"
+            f"    terminator_cmd={self.terminator_cmd},\n"
+            f"    bytesize={self.bytesize},\n"
+            f"    parity={self.parity!r},\n"
+            f"    stopbits={self.stopbits},\n"
+            f"    xonxoff={self.xonxoff},\n"
+            f"    rtscts={self.rtscts},\n"
+            f"    dsrdtr={self.dsrdtr},\n"
         )
 
 
@@ -245,6 +254,9 @@ class SerialDevice:
         terminator_delay : float, optional
             Wait `terminator_delay` seconds before sending `terminator_cmd`.
             Defaults to 0.
+        terminator_idle_timeout : float | None, optional
+            After `terminator_cmd` is sent, return once no data have been received for `terminator_idle_timeout` seconds.
+            Defaults to None.
         num_lines : int, optional
             Stops read when `len(response) == num_lines`.
             Defaults to None.
@@ -265,25 +277,33 @@ class SerialDevice:
         terminator_cmd = kwargs.get('terminator_cmd', self.terminator_cmd)
         strip_terminator = kwargs.get('strip_terminator', True)
         terminator_delay = kwargs.get('terminator_delay', 0)
+        terminator_idle_timeout = kwargs.get('terminator_idle_timeout', None)
         num_lines = kwargs.get('num_lines', None)
-
+        
         # do we want to check if stuff is getting received?
+        # like suppose when we connect, the device is already continuously emitting data...
 
+        if (terminator_idle_timeout is not None and terminator_idle_timeout <= 0):
+            raise ValueError('terminator_idle_timeout must be positive or None')
+        
         self.flush()
-
+        
         self.write(command, newline_tx=newline_tx, append_newline=True)
 
         response = []
         t0 = time.monotonic()
         sent_terminator = False
         saw_terminator = False
-
+        last_rx_at = None
+        
         while True:
+            now = time.monotonic()
+
             # End read if timeout
             if timeout is None:
                 remaining = None
             else:
-                remaining = timeout - (time.monotonic() - t0)
+                remaining = timeout - (now - t0)
                 if remaining <= 0:
                     break
 
@@ -292,16 +312,34 @@ class SerialDevice:
             if (terminator_cmd is not None
                 and terminator_delay >= 0
                 and not sent_terminator
-                and time.monotonic() - t0 >= terminator_delay
-                ):
+                and now - t0 >= terminator_delay):
+                
                 self.write(terminator_cmd, newline_tx=newline_tx, append_newline=False)
                 sent_terminator = True
+                last_rx_at = now
 
+            # Once terminator_cmd has been sent, limit readline() by the remaining allowed receive-idle period.
+            if (sent_terminator
+                and terminator_idle_timeout is not None
+                and last_rx_at is not None):
+                
+                idle_remaining = (terminator_idle_timeout - (now - last_rx_at))
+
+                if idle_remaining <= 0:
+                    break
+
+                remaining = (idle_remaining if remaining is None
+                             else min(remaining, idle_remaining))
+                
             # Read line and append to response if it's not empty
             line = self.readline(newline_rx=newline_rx, timeout=remaining)
 
             if line:
+                now = time.monotonic()
                 response.append(line)
+
+                if sent_terminator:
+                    last_rx_at = now
 
             # Optionally end read at num_lines
             if num_lines is not None and len(response) >= num_lines:
@@ -310,13 +348,17 @@ class SerialDevice:
             # Optionally end read at terminator
             if (terminator is not None
                 and line
-                and terminator in line
-                and sent_terminator):
+                and terminator in line):
                 saw_terminator = True
                 break
 
         # Optionally remove terminator from response.
-        if strip_terminator and response and terminator and saw_terminator and terminator in response[-1]:
+        if (strip_terminator
+            and response
+            and terminator
+            and saw_terminator
+            and terminator in response[-1]):
+            
             response = response[:-1]
 
         # If response is single line, return as str

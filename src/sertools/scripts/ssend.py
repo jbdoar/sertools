@@ -289,7 +289,7 @@ def main():
             xonxoff=args.flow == 'xonxoff',
             rtscts=args.flow == 'rtscts',
             dsrdtr=args.flow == 'dsrdtr',
-            write_timeout=args.write_timeout,
+            timeout=args.write_timeout,
         )
     except serial.SerialException as exc:
         parser.exit(
