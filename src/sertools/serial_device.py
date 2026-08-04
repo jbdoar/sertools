@@ -91,10 +91,10 @@ class SerialDevice:
             f"    baudrate={self.baudrate},\n"
             f"    timeout={self.timeout!r},\n"
             f"    encoding={self.encoding},\n"
-            f"    newline_tx={self.newline_tx},\n"
-            f"    newline_rx={self.newline_rx},\n"
-            f"    terminator={self.terminator},\n"
-            f"    terminator_cmd={self.terminator_cmd},\n"
+            f"    newline_tx={self.newline_tx!r},\n"
+            f"    newline_rx={self.newline_rx!r},\n"
+            f"    terminator={self.terminator!r},\n"
+            f"    terminator_cmd={self.terminator_cmd!r},\n"
             f"    bytesize={self.bytesize},\n"
             f"    parity={self.parity!r},\n"
             f"    stopbits={self.stopbits},\n"
@@ -299,7 +299,7 @@ class SerialDevice:
         while True:
             now = time.monotonic()
 
-            # End read if timeout
+            # Start with remaining overall query timeout
             if timeout is None:
                 remaining = None
             else:
@@ -307,16 +307,22 @@ class SerialDevice:
                 if remaining <= 0:
                     break
 
-            # Send terminator_cmd after terminator_delay.
+            # Send terminator_cmd once its delay has elapsed.
+            # Before then, ensure readline() cannot block past the scheduled send time.
             # Toggle sent_terminator to True so it only sends it once.
-            if (terminator_cmd is not None
-                and terminator_delay >= 0
-                and not sent_terminator
-                and now - t0 >= terminator_delay):
-                
-                self.write(terminator_cmd, newline_tx=newline_tx, append_newline=False)
-                sent_terminator = True
-                last_rx_at = now
+            if (terminator_cmd is not None and not sent_terminator):
+                delay_remaining = terminator_delay - (now - t0)
+
+                if delay_remaining <= 0:
+                    self.write(terminator_cmd, newline_tx=newline_tx, append_newline=False)
+                    sent_terminator = True
+                    last_rx_at = now
+                else:
+                    remaining = (
+                        delay_remaining
+                        if remaining is None
+                        else min(remaining, delay_remaining)
+                    )
 
             # Once terminator_cmd has been sent, limit readline() by the remaining allowed receive-idle period.
             if (sent_terminator
@@ -346,9 +352,7 @@ class SerialDevice:
                 break
 
             # Optionally end read at terminator
-            if (terminator is not None
-                and line
-                and terminator in line):
+            if (terminator is not None and line and terminator in line):
                 saw_terminator = True
                 break
 
