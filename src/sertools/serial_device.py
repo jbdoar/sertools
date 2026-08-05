@@ -11,9 +11,6 @@ import time
 import serial
 
 
-log = logging.getLogger(__name__)
-
-
 class SerialDevice:
     """Thin wrapper for pyserial.Serial class.
     Provides a flexible query method for sending commands and receiving responses.
@@ -54,7 +51,9 @@ class SerialDevice:
                  stopbits: float = serial.STOPBITS_ONE,
                  xonxoff: bool = False,
                  rtscts: bool = False,
-                 dsrdtr: bool = False):
+                 dsrdtr: bool = False,
+                 logger_name: str | None = None,
+                 ):
 
         self.port = port
         self.baudrate = baudrate
@@ -71,6 +70,7 @@ class SerialDevice:
         self.xonxoff = xonxoff
         self.rtscts = rtscts
         self.dsrdtr = dsrdtr
+        self.log = logging.getLogger(logger_name or __name__)
 
         self.ser = serial.Serial(port=port,
                                  baudrate=baudrate,
@@ -161,7 +161,7 @@ class SerialDevice:
         if append_newline and not command.endswith(newline_tx):
             command += newline_tx
 
-        log.info("TX: %r", command)
+        self.log.info("TX: %r", command)
         tx = command.encode(self.encoding)
         return self.ser.write(tx)
 
@@ -217,7 +217,7 @@ class SerialDevice:
 
         line = line_bytes.decode(self.encoding, errors='replace').strip()
         if line:
-            log.info("RX: %r", line)
+            self.log.info("RX: %r", line)
         return line
     
 
