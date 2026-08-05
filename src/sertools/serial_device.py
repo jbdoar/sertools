@@ -26,6 +26,13 @@ class SerialDevice:
     newline_rx : str
     terminator : str
     terminator_cmd : str
+    bytesize: int
+    parity: str
+    stopbits: float
+    xonxoff: bool
+    rtscts: bool
+    dsrdtr: bool
+    logger_name: str
 
     Examples
     --------
@@ -70,7 +77,8 @@ class SerialDevice:
         self.xonxoff = xonxoff
         self.rtscts = rtscts
         self.dsrdtr = dsrdtr
-        self.log = logging.getLogger(logger_name or __name__)
+        self.logger_name = logger_name or __name__
+        self.log = logging.getLogger(self.logger_name)
 
         self.ser = serial.Serial(port=port,
                                  baudrate=baudrate,
@@ -101,6 +109,7 @@ class SerialDevice:
             f"    xonxoff={self.xonxoff},\n"
             f"    rtscts={self.rtscts},\n"
             f"    dsrdtr={self.dsrdtr},\n"
+            f"    logger_name={self.logger_name},\n"
         )
 
 

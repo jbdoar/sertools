@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sertools"
-version = "0.1.6"
+version = "0.1.7"
 description = "Interface for serial devices using pyserial."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,7 +20,6 @@ Homepage = "https://github.com/jbdoar/sertools"
 Issues = "https://github.com/jbdoar/sertools/issues"
 
 [project.scripts]
-# serial terminal emulator
 sterm = "sertools.scripts.sterm:main"
 list_ports = "sertools.scripts.list_ports:main"
 ssend = "sertools.scripts.ssend:main"
