@@ -303,6 +303,8 @@ class SerialDevice:
             Defaults to 0.
         terminator_idle_timeout : float | None, optional
             After `terminator_cmd` is sent, return once no data have been received for `terminator_idle_timeout` seconds.
+            With no `terminator_cmd`, the idle period runs from sending `command`,
+            so nothing but the command reaches the device.
             Defaults to None.
         num_lines : int, optional
             Stops read when `len(response) == num_lines`.
@@ -355,7 +357,9 @@ class SerialDevice:
         saw_terminator = False
         stopped_at_num_lines = False
         timed_out = False
-        last_rx_at = None
+        # Without a terminator_cmd the idle period runs from the command
+        # itself; otherwise from sending terminator_cmd.
+        last_rx_at = t0 if terminator_cmd is None else None
 
         while True:
             now = time.monotonic()
@@ -386,8 +390,8 @@ class SerialDevice:
                         else min(remaining, delay_remaining)
                     )
 
-            # Once terminator_cmd has been sent, limit readline() by the remaining allowed receive-idle period.
-            if (sent_terminator
+            # Once terminator_cmd has been sent (or if there is none), limit readline() by the remaining allowed receive-idle period.
+            if ((sent_terminator or terminator_cmd is None)
                 and terminator_idle_timeout is not None
                 and last_rx_at is not None):
                 
@@ -406,7 +410,7 @@ class SerialDevice:
                 now = time.monotonic()
                 response.append(line)
 
-                if sent_terminator:
+                if sent_terminator or terminator_cmd is None:
                     last_rx_at = now
 
             # Optionally end read at num_lines

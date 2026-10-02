@@ -145,3 +145,26 @@ def test_a_held_back_rest_of_a_response_is_released_and_discarded():
     assert info.value.response == ["1,0.5", "28,0.97"]
     device.ser.answers["pre12"] = b"\r\n12,Blue\r\nOk\r\n"
     assert device.query("pre12") == "12,Blue"
+
+
+def test_idle_timeout_without_terminator_cmd_sends_only_the_command():
+    # A long-running measurement: progress lines, then a quiet device. Only
+    # the command itself may reach it.
+    device = make_device({"mpc5": b"\r\nphase 1\r\nphase 2\r\nOk\r\n"})
+    sent = []
+    write = device.ser.write
+    device.ser.write = lambda data: sent.append(data) or write(data)
+    start = time.monotonic()
+    lines = device.query("mpc5", terminator=None, terminator_cmd=None,
+                         terminator_idle_timeout=0.3, timeout=5.0, raise_on_timeout=True)
+    assert lines == ["phase 1", "phase 2", "Ok"]
+    assert time.monotonic() - start == pytest.approx(0.35, abs=0.15)
+    assert sent == [b"mpc5\r"]
+
+
+def test_idle_timeout_without_terminator_cmd_covers_a_silent_device():
+    device = make_device({"blvs": b""})
+    start = time.monotonic()
+    assert device.query("blvs", terminator=None, terminator_cmd=None,
+                        terminator_idle_timeout=0.3, timeout=5.0, raise_on_timeout=True) == []
+    assert time.monotonic() - start < 0.6
