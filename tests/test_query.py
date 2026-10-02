@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from sertools import SerialDevice
+from sertools import QueryTimeout, SerialDevice
 
 
 class DelayedDevice:
@@ -87,3 +87,31 @@ def test_no_draining_when_the_terminator_was_already_read():
     start = time.monotonic()
     device.query("one", num_lines=1)
     assert time.monotonic() - start < 0.2
+
+
+def test_timeout_returns_the_partial_response_by_default():
+    # A device that stalls mid-response and never acknowledges.
+    device = make_device({"osp": b"\r\n1,2,3\r\n4,5", "": b""})
+    assert device.query("osp", timeout=0.2) == ["1,2,3", "4,5"]
+
+
+def test_raise_on_timeout_raises_with_what_arrived():
+    device = make_device({"osp": b"\r\n1,2,3\r\n4,5", "": b""})
+    with pytest.raises(QueryTimeout) as info:
+        device.query("osp", timeout=0.2, raise_on_timeout=True)
+    assert isinstance(info.value, TimeoutError)
+    assert info.value.command == "osp" and info.value.response == ["1,2,3", "4,5"]
+
+
+def test_raise_on_timeout_discards_the_late_rest_of_the_response():
+    # The answer arrives after the query has given up; it must not be taken
+    # as the next query's response.
+    device = make_device({"slow": b"\r\nlate\r\nOk\r\n"}, delay=0.3)
+    with pytest.raises(QueryTimeout):
+        device.query("slow", timeout=0.1, raise_on_timeout=True)
+    assert device.query("next") == []
+
+
+def test_no_raise_when_the_response_completes_in_time():
+    device = make_device({"cpa": b"\r\n1,+0\r\nOk\r\n"})
+    assert device.query("cpa", timeout=1.0, raise_on_timeout=True) == "1,+0"

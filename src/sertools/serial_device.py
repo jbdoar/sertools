@@ -11,6 +11,22 @@ import time
 import serial
 
 
+class QueryTimeout(TimeoutError):
+    """A query's overall `timeout` ran out before its response ended.
+
+    `response` holds the lines received before then (possibly none).
+    """
+
+    def __init__(self, command: str, timeout: float, response: list[str]):
+        self.command = command
+        self.timeout = timeout
+        self.response = response
+        super().__init__(
+            f"{command!r}: no complete response within {timeout:g} s "
+            f"({len(response)} line{'s' if len(response) != 1 else ''} received)"
+        )
+
+
 class SerialDevice:
     """Thin wrapper for pyserial.Serial class.
     Provides a flexible query method for sending commands and receiving responses.
@@ -142,6 +158,19 @@ class SerialDevice:
             if terminator in self.readline(newline_rx=newline_rx, timeout=remaining):
                 return True
         return False
+
+    def _discard_until_quiet(self, quiet: float, limit: float) -> None:
+        """Discard incoming data until none has arrived for `quiet` seconds,
+        for at most `limit` seconds."""
+        deadline = time.monotonic() + limit
+        last_rx_at = time.monotonic()
+        while (now := time.monotonic()) < deadline and now - last_rx_at < quiet:
+            if self.ser.in_waiting:
+                self.ser.read(self.ser.in_waiting)
+                last_rx_at = time.monotonic()
+            else:
+                time.sleep(0.005)
+        self._rx_buffer.clear()
 
     def flush(self) -> None:
         """Reset input and output buffers."""
@@ -283,6 +312,11 @@ class SerialDevice:
             reading (and discard) through the device's answer to
             `terminator_cmd` for up to this many seconds, so it can't be
             mistaken for part of the next response. Defaults to 0.5.
+        raise_on_timeout : bool, optional
+            When the overall `timeout` runs out before the response ends,
+            discard whatever the device is still sending and raise
+            `QueryTimeout` instead of returning the partial response.
+            Defaults to False.
 
         Returns
         -------
@@ -303,7 +337,8 @@ class SerialDevice:
         terminator_idle_timeout = kwargs.get('terminator_idle_timeout', None)
         num_lines = kwargs.get('num_lines', None)
         drain_timeout = kwargs.get('drain_timeout', 0.5)
-        
+        raise_on_timeout = kwargs.get('raise_on_timeout', False)
+
         # do we want to check if stuff is getting received?
         # like suppose when we connect, the device is already continuously emitting data...
 
@@ -319,8 +354,9 @@ class SerialDevice:
         sent_terminator = False
         saw_terminator = False
         stopped_at_num_lines = False
+        timed_out = False
         last_rx_at = None
-        
+
         while True:
             now = time.monotonic()
 
@@ -330,6 +366,7 @@ class SerialDevice:
             else:
                 remaining = timeout - (now - t0)
                 if remaining <= 0:
+                    timed_out = True
                     break
 
             # Send terminator_cmd once its delay has elapsed.
@@ -381,6 +418,12 @@ class SerialDevice:
             if (terminator is not None and line and terminator in line):
                 saw_terminator = True
                 break
+
+        if timed_out and raise_on_timeout:
+            # The rest of this response may still be on its way; it must not
+            # be read as the start of the next one.
+            self._discard_until_quiet(quiet=0.25, limit=max(drain_timeout, 2.0))
+            raise QueryTimeout(command, timeout, response)
 
         # num_lines can end the read before the device answers terminator_cmd;
         # that answer would then arrive during the next query and be taken as

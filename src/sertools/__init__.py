@@ -1,3 +1,3 @@
-from .serial_device import SerialDevice
+from .serial_device import QueryTimeout, SerialDevice
 
-__all__ = ["SerialDevice"]
+__all__ = ["QueryTimeout", "SerialDevice"]
