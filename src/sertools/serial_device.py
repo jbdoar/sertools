@@ -134,6 +134,15 @@ class SerialDevice:
         self.ser.close()
 
 
+    def _discard_through(self, terminator: str, newline_rx: str, timeout: float) -> bool:
+        """Read and discard lines until one contains `terminator`, for at most
+        `timeout` seconds. Returns whether it was seen."""
+        deadline = time.monotonic() + timeout
+        while (remaining := deadline - time.monotonic()) > 0:
+            if terminator in self.readline(newline_rx=newline_rx, timeout=remaining):
+                return True
+        return False
+
     def flush(self) -> None:
         """Reset input and output buffers."""
         self.ser.reset_input_buffer()
@@ -269,6 +278,11 @@ class SerialDevice:
         num_lines : int, optional
             Stops read when `len(response) == num_lines`.
             Defaults to None.
+        drain_timeout : float, optional
+            When `num_lines` ends the read before `terminator` arrives, keep
+            reading (and discard) through the device's answer to
+            `terminator_cmd` for up to this many seconds, so it can't be
+            mistaken for part of the next response. Defaults to 0.5.
 
         Returns
         -------
@@ -288,6 +302,7 @@ class SerialDevice:
         terminator_delay = kwargs.get('terminator_delay', 0)
         terminator_idle_timeout = kwargs.get('terminator_idle_timeout', None)
         num_lines = kwargs.get('num_lines', None)
+        drain_timeout = kwargs.get('drain_timeout', 0.5)
         
         # do we want to check if stuff is getting received?
         # like suppose when we connect, the device is already continuously emitting data...
@@ -303,6 +318,7 @@ class SerialDevice:
         t0 = time.monotonic()
         sent_terminator = False
         saw_terminator = False
+        stopped_at_num_lines = False
         last_rx_at = None
         
         while True:
@@ -358,12 +374,23 @@ class SerialDevice:
 
             # Optionally end read at num_lines
             if num_lines is not None and len(response) >= num_lines:
+                stopped_at_num_lines = True
                 break
 
             # Optionally end read at terminator
             if (terminator is not None and line and terminator in line):
                 saw_terminator = True
                 break
+
+        # num_lines can end the read before the device answers terminator_cmd;
+        # that answer would then arrive during the next query and be taken as
+        # its terminator, cutting it short. Consume it now.
+        if (stopped_at_num_lines
+            and sent_terminator
+            and terminator is not None
+            and not (response and terminator in response[-1])):
+
+            self._discard_through(terminator, newline_rx, drain_timeout)
 
         # Optionally remove terminator from response.
         if (strip_terminator
