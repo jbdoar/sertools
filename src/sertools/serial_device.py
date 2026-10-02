@@ -421,7 +421,12 @@ class SerialDevice:
 
         if timed_out and raise_on_timeout:
             # The rest of this response may still be on its way; it must not
-            # be read as the start of the next one.
+            # be read as the start of the next one. A device has been seen
+            # holding the rest of a stalled response until it next received
+            # something, so send terminator_cmd (whose answer is discarded
+            # too) to release it before draining.
+            if terminator_cmd is not None:
+                self.write(terminator_cmd, newline_tx=newline_tx, append_newline=False)
             self._discard_until_quiet(quiet=0.25, limit=max(drain_timeout, 2.0))
             raise QueryTimeout(command, timeout, response)
 

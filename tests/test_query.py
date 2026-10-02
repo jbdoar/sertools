@@ -115,3 +115,33 @@ def test_raise_on_timeout_discards_the_late_rest_of_the_response():
 def test_no_raise_when_the_response_completes_in_time():
     device = make_device({"cpa": b"\r\n1,+0\r\nOk\r\n"})
     assert device.query("cpa", timeout=1.0, raise_on_timeout=True) == "1,+0"
+
+
+class HoldingDevice(DelayedDevice):
+    """Sends only part of a response and holds the rest until it next
+    receives something (seen on an RS-9 answering SCP)."""
+
+    def __init__(self, answers, held: bytes, **kwargs):
+        super().__init__(answers, **kwargs)
+        self.held = held
+        self.written_any = False
+
+    def write(self, data: bytes) -> int:
+        # Once the partial response is out, anything received releases the
+        # rest, ahead of its own answer.
+        if self.held and self.pending == [] and self.written_any:
+            self.pending.append((time.monotonic(), self.held))
+            self.held = b""
+        self.written_any = True
+        return super().write(data)
+
+
+def test_a_held_back_rest_of_a_response_is_released_and_discarded():
+    device = make_device({})
+    device.ser = HoldingDevice({"scp": b"\r\n1,0.5\r\n28,0.97", "": b""},
+                               held=b"2213\r\n30,0.04\r\nOk\r\n")
+    with pytest.raises(QueryTimeout) as info:
+        device.query("scp", timeout=0.2, raise_on_timeout=True)
+    assert info.value.response == ["1,0.5", "28,0.97"]
+    device.ser.answers["pre12"] = b"\r\n12,Blue\r\nOk\r\n"
+    assert device.query("pre12") == "12,Blue"
