@@ -168,3 +168,29 @@ def test_idle_timeout_without_terminator_cmd_covers_a_silent_device():
     assert device.query("blvs", terminator=None, terminator_cmd=None,
                         terminator_idle_timeout=0.3, timeout=5.0, raise_on_timeout=True) == []
     assert time.monotonic() - start < 0.6
+
+
+def test_read_stream_returns_the_exact_bytes_until_quiet():
+    stream = b"0 /scc0,0.025\r\rmong444 scc0,0.03 -2147327468   13  -36051 /scc0,0.05\r\rOk\r\ndet2 OK\r"
+    device = make_device({"tgrs": stream})
+    sent = []
+    write = device.ser.write
+    device.ser.write = lambda data: sent.append(data) or write(data)
+    start = time.monotonic()
+    assert device.read_stream("tgrs", idle=0.3, timeout=5.0) == stream
+    assert time.monotonic() - start == pytest.approx(0.35, abs=0.15)
+    assert sent == [b"tgrs\r"]
+
+
+def test_read_stream_raises_when_the_device_never_goes_quiet():
+    class Chatty(DelayedDevice):
+        @property
+        def in_waiting(self):
+            self._buffer = b"x"
+            return 1
+
+    device = make_device({})
+    device.ser = Chatty({})
+    with pytest.raises(QueryTimeout) as info:
+        device.read_stream("tgrs", idle=0.2, timeout=0.5)
+    assert info.value.response[0].startswith("xx")

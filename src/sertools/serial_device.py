@@ -172,6 +172,45 @@ class SerialDevice:
                 time.sleep(0.005)
         self._rx_buffer.clear()
 
+    def read_stream(self, command: str, *, idle: float, timeout: float | None = None,
+                    newline_tx: str | None = None, raise_on_timeout: bool = True) -> bytes:
+        """Send `command`, then return every byte received, exactly as sent,
+        until the device has been quiet for `idle` seconds.
+
+        For long-running commands whose output is a stream rather than lines
+        (bare carriage returns, spinners, records without line breaks). Only
+        the command itself is sent. If the device is still sending after
+        `timeout` seconds, raises QueryTimeout (carrying the data decoded as
+        one string) unless `raise_on_timeout` is False.
+        """
+        if idle <= 0:
+            raise ValueError('idle must be positive')
+        newline_tx = self.newline_tx if newline_tx is None else newline_tx
+        self.flush()
+        self._rx_buffer.clear()
+        self.write(command, newline_tx=newline_tx, append_newline=True)
+
+        data = bytearray()
+        t0 = last_rx_at = time.monotonic()
+        while True:
+            now = time.monotonic()
+            if now - last_rx_at >= idle:
+                break
+            if timeout is not None and now - t0 >= timeout:
+                if raise_on_timeout:
+                    raise QueryTimeout(command, timeout,
+                                       [data.decode(self.encoding, errors='replace')])
+                break
+            waiting = self.ser.in_waiting
+            if waiting:
+                chunk = self.ser.read(waiting)
+                data.extend(chunk)
+                last_rx_at = time.monotonic()
+                self.log.info("RX: %r", chunk.decode(self.encoding, errors='replace'))
+            else:
+                time.sleep(0.005)
+        return bytes(data)
+
     def flush(self) -> None:
         """Reset input and output buffers."""
         self.ser.reset_input_buffer()
