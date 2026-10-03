@@ -194,3 +194,44 @@ def test_read_stream_raises_when_the_device_never_goes_quiet():
     with pytest.raises(QueryTimeout) as info:
         device.read_stream("tgrs", idle=0.2, timeout=0.5)
     assert info.value.response[0].startswith("xx")
+
+
+class StallingDevice(DelayedDevice):
+    """Sends the first `split` bytes of an answer, then holds the rest until
+    it next receives something -- as an RS-9 has been seen to."""
+
+    def __init__(self, answers, split, **kwargs):
+        super().__init__(answers, **kwargs)
+        self.split, self.held = split, None
+
+    def write(self, data: bytes) -> int:
+        # Anything received once the stall has begun releases the rest.
+        if self.held is not None and time.monotonic() >= self.stalled_at:
+            self.pending.append((time.monotonic(), self.held))
+            self.held = None
+        before = len(self.pending)
+        result = super().write(data)
+        if len(self.pending) > before and self.split is not None:
+            at, answer = self.pending.pop(before)
+            self.pending.insert(before, (at, answer[:self.split]))
+            self.held, self.split, self.stalled_at = answer[self.split:], None, at
+        return result
+
+
+def test_a_line_stalled_part_way_is_released_by_a_nudge():
+    # An empty command (the nudge, sledpy's terminator_cmd) gets no answer.
+    answers = {"blv": b"\r\n-333,-326,-343,-322,-605,\r\nOk\r\n", "": b""}
+    device = make_device({})
+    device.ser = StallingDevice(answers, split=20)
+    device.stall_nudge = 0.1
+    start = time.monotonic()
+    assert device.query("blv", timeout=5.0, raise_on_timeout=True) == "-333,-326,-343,-322,-605,"
+    assert time.monotonic() - start < 1.0
+
+
+def test_without_nudging_the_stalled_line_times_out():
+    answers = {"blv": b"\r\n-333,-326,-343,-322,-605,\r\nOk\r\n"}
+    device = make_device({})
+    device.ser = StallingDevice(answers, split=20)
+    with pytest.raises(QueryTimeout):
+        device.query("blv", timeout=0.5, raise_on_timeout=True, terminator_cmd=None)

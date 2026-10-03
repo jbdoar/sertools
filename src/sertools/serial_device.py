@@ -49,6 +49,15 @@ class SerialDevice:
     rtscts: bool
     dsrdtr: bool
     logger_name: str
+    stall_nudge : float or None
+        If part of a line has arrived and nothing more for this many seconds,
+        write `nudge` to the device (up to `max_nudges` times per line). Some
+        devices hold the rest of a stalled response until they next receive
+        something (an RS-9 has been seen to); an empty command releases it.
+        Default None: off.
+    nudge : str or None
+        What to write; default `terminator_cmd`, else `newline_tx`.
+    max_nudges : int
 
     Examples
     --------
@@ -76,6 +85,9 @@ class SerialDevice:
                  rtscts: bool = False,
                  dsrdtr: bool = False,
                  logger_name: str | None = None,
+                 stall_nudge: float | None = None,
+                 nudge: str | None = None,
+                 max_nudges: int = 3,
                  ):
 
         self.port = port
@@ -93,6 +105,9 @@ class SerialDevice:
         self.xonxoff = xonxoff
         self.rtscts = rtscts
         self.dsrdtr = dsrdtr
+        self.stall_nudge = stall_nudge
+        self.nudge = nudge
+        self.max_nudges = max_nudges
         self.logger_name = logger_name or __name__
         self.log = logging.getLogger(self.logger_name)
 
@@ -253,7 +268,8 @@ class SerialDevice:
 
 
     def readline(self, newline_rx: str | None = None,
-                 timeout: float | None = None) -> str:
+                 timeout: float | None = None,
+                 stall_nudge: float | None = None) -> str:
         """Read a line from device.
 
         Parameters
@@ -276,8 +292,10 @@ class SerialDevice:
         newline_rx = self.newline_rx if newline_rx is None else newline_rx
         timeout = self.timeout if timeout is None else timeout
 
+        stall_nudge = self.stall_nudge if stall_nudge is None else stall_nudge
         nl = newline_rx.encode(self.encoding)
-        t0 = time.monotonic()
+        t0 = last_rx_at = time.monotonic()
+        nudges = 0
         line_bytes = None
 
         while True:
@@ -298,7 +316,14 @@ class SerialDevice:
             n = self.ser.in_waiting
             if n:
                 self._rx_buffer.extend(self.ser.read(n))
+                last_rx_at = time.monotonic()
             else:
+                now = time.monotonic()
+                if (stall_nudge is not None and self._rx_buffer
+                        and nudges < self.max_nudges and now - last_rx_at >= stall_nudge):
+                    self._nudge(len(self._rx_buffer))
+                    nudges += 1
+                    last_rx_at = now
                 time.sleep(0.005)
 
         line = line_bytes.decode(self.encoding, errors='replace').strip()
@@ -306,6 +331,13 @@ class SerialDevice:
             self.log.info("RX: %r", line)
         return line
     
+
+    def _nudge(self, partial: int) -> None:
+        nudge = self.nudge
+        if nudge is None:
+            nudge = self.terminator_cmd if self.terminator_cmd is not None else self.newline_tx
+        self.log.warning("stalled mid-line (%d bytes); nudging with %r", partial, nudge)
+        self.ser.write(nudge.encode(self.encoding))
 
     def query(self, command: str, **kwargs) -> str | list[str]:
         """Primary method for sending command and receiving response.
@@ -353,6 +385,9 @@ class SerialDevice:
             reading (and discard) through the device's answer to
             `terminator_cmd` for up to this many seconds, so it can't be
             mistaken for part of the next response. Defaults to 0.5.
+        stall_nudge : float | None, optional
+            Seconds of silence mid-line before nudging the device (see the
+            class docstring). Defaults to `self.stall_nudge`.
         raise_on_timeout : bool, optional
             When the overall `timeout` runs out before the response ends,
             discard whatever the device is still sending and raise
@@ -379,6 +414,7 @@ class SerialDevice:
         num_lines = kwargs.get('num_lines', None)
         drain_timeout = kwargs.get('drain_timeout', 0.5)
         raise_on_timeout = kwargs.get('raise_on_timeout', False)
+        stall_nudge = kwargs.get('stall_nudge', self.stall_nudge)
 
         # do we want to check if stuff is getting received?
         # like suppose when we connect, the device is already continuously emitting data...
@@ -443,7 +479,8 @@ class SerialDevice:
                              else min(remaining, idle_remaining))
                 
             # Read line and append to response if it's not empty
-            line = self.readline(newline_rx=newline_rx, timeout=remaining)
+            line = self.readline(newline_rx=newline_rx, timeout=remaining,
+                                 stall_nudge=stall_nudge)
 
             if line:
                 now = time.monotonic()
