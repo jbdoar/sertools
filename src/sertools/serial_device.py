@@ -226,6 +226,39 @@ class SerialDevice:
                 time.sleep(0.005)
         return bytes(data)
 
+    def sample_stream(self, command: str, seconds: float, *, stop: bytes = b"",
+                      quiet: float = 0.5, limit: float = 5.0,
+                      newline_tx: str | None = None) -> bytes:
+        """Send `command`, collect everything the device sends for `seconds`,
+        then send `stop` (default ESC) and keep collecting until it has been
+        quiet for `quiet` seconds (at most `limit`). For commands that report
+        continuously until told to stop. Returns the bytes exactly as sent."""
+        newline_tx = self.newline_tx if newline_tx is None else newline_tx
+        self.flush()
+        self._rx_buffer.clear()
+        self.write(command, newline_tx=newline_tx, append_newline=True)
+        data = bytearray()
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            waiting = self.ser.in_waiting
+            if waiting:
+                data.extend(self.ser.read(waiting))
+            else:
+                time.sleep(0.005)
+        self.log.info("TX: %r (stop)", stop)
+        self.ser.write(stop)
+        deadline = time.monotonic() + limit
+        last_rx_at = time.monotonic()
+        while (now := time.monotonic()) < deadline and now - last_rx_at < quiet:
+            waiting = self.ser.in_waiting
+            if waiting:
+                data.extend(self.ser.read(waiting))
+                last_rx_at = time.monotonic()
+            else:
+                time.sleep(0.005)
+        self.log.info("RX: %d bytes", len(data))
+        return bytes(data)
+
     def flush(self) -> None:
         """Reset input and output buffers."""
         self.ser.reset_input_buffer()
