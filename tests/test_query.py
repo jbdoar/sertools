@@ -235,3 +235,16 @@ def test_without_nudging_the_stalled_line_times_out():
     device.ser = StallingDevice(answers, split=20)
     with pytest.raises(QueryTimeout):
         device.query("blv", timeout=0.5, raise_on_timeout=True, terminator_cmd=None)
+
+
+def test_no_nudge_into_a_stream_or_for_a_stray_line_ending():
+    # A CR-delimited stream (newline_rx '\r', no terminator): the LF after a
+    # CR LF is not a stalled line, and nothing may be sent into the stream.
+    device = make_device({"pdn": b"\r\n  FBG  Mean\r\n\r0.99 1000.0 "})
+    device.stall_nudge = 0.05
+    sent = []
+    write = device.ser.write
+    device.ser.write = lambda data: sent.append(data) or write(data)
+    device.query("pdn", newline_rx="\r", terminator=None, terminator_cmd=None,
+                 terminator_idle_timeout=0.3, timeout=2.0)
+    assert sent == [b"pdn\r"]

@@ -51,7 +51,9 @@ class SerialDevice:
     logger_name: str
     stall_nudge : float or None
         If part of a line has arrived and nothing more for this many seconds,
-        write `nudge` to the device (up to `max_nudges` times per line). Some
+        write `nudge` to the device (up to `max_nudges` times per line). Only
+        in queries that end at a `terminator`, and only for a partial line with
+        content (not a stray CR or LF). Some
         devices hold the rest of a stalled response until they next receive
         something (an RS-9 has been seen to); an empty command releases it.
         Default None: off.
@@ -319,7 +321,7 @@ class SerialDevice:
                 last_rx_at = time.monotonic()
             else:
                 now = time.monotonic()
-                if (stall_nudge is not None and self._rx_buffer
+                if (stall_nudge is not None and self._rx_buffer.strip()
                         and nudges < self.max_nudges and now - last_rx_at >= stall_nudge):
                     self._nudge(len(self._rx_buffer))
                     nudges += 1
@@ -414,7 +416,9 @@ class SerialDevice:
         num_lines = kwargs.get('num_lines', None)
         drain_timeout = kwargs.get('drain_timeout', 0.5)
         raise_on_timeout = kwargs.get('raise_on_timeout', False)
-        stall_nudge = kwargs.get('stall_nudge', self.stall_nudge)
+        # Only replies that end at a terminator: a stream or an idle-terminated
+        # read must never get bytes sent into it (a keystroke can stop it).
+        stall_nudge = kwargs.get('stall_nudge', self.stall_nudge) if terminator is not None else None
 
         # do we want to check if stuff is getting received?
         # like suppose when we connect, the device is already continuously emitting data...
