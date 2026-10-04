@@ -294,6 +294,7 @@ class SerialDevice:
         newline_rx = self.newline_rx if newline_rx is None else newline_rx
         timeout = self.timeout if timeout is None else timeout
 
+        # None: the device's default; 0: off.
         stall_nudge = self.stall_nudge if stall_nudge is None else stall_nudge
         nl = newline_rx.encode(self.encoding)
         t0 = last_rx_at = time.monotonic()
@@ -321,7 +322,7 @@ class SerialDevice:
                 last_rx_at = time.monotonic()
             else:
                 now = time.monotonic()
-                if (stall_nudge is not None and self._rx_buffer.strip()
+                if (stall_nudge and self._rx_buffer.strip()
                         and nudges < self.max_nudges and now - last_rx_at >= stall_nudge):
                     self._nudge(len(self._rx_buffer))
                     nudges += 1
@@ -418,7 +419,7 @@ class SerialDevice:
         raise_on_timeout = kwargs.get('raise_on_timeout', False)
         # Only replies that end at a terminator: a stream or an idle-terminated
         # read must never get bytes sent into it (a keystroke can stop it).
-        stall_nudge = kwargs.get('stall_nudge', self.stall_nudge) if terminator is not None else None
+        stall_nudge = kwargs.get('stall_nudge', self.stall_nudge) if terminator is not None else 0
 
         # do we want to check if stuff is getting received?
         # like suppose when we connect, the device is already continuously emitting data...
